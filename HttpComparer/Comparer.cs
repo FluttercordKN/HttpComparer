@@ -28,11 +28,10 @@ namespace HttpComparer
 		public async Task<string> Execute()
 		{
 			using var client = new HttpClient();
-			var tasks = new List<Task<string>>();
+			var results = new List<string>();
 			foreach (var scenario in Scenarios)
 				foreach (var parametersSet in scenario.Parameters)
-					tasks.Add(ProcessScenarioCase(client, BaseHost, SideHost, scenario.Template, parametersSet));
-			var results = await Task.WhenAll(tasks);
+					results.Add(await ProcessScenarioCase(client, BaseHost, SideHost, scenario.Template, parametersSet));
 
 			return string.Join(Environment.NewLine, results);
 		}
