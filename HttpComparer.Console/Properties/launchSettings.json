@@ -1,0 +1,7 @@
+{
+  "profiles": {
+    "HttpComparer.Console": {
+      "commandName": "Project"
+    }
+  }
+}
