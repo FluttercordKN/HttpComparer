@@ -7,6 +7,7 @@ using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace HttpComparer.Test
 {
@@ -143,9 +144,9 @@ namespace HttpComparer.Test
 				Scenarios = scenarios
 			};
 
-			var result = instance.Execute().GetAwaiter().GetResult();
+			var result = instance.Execute().ToListAsync().GetAwaiter().GetResult();
 
-			System.Console.WriteLine(result);
+			System.Console.WriteLine(string.Join(Environment.NewLine, result));
 		}
 	}
 }

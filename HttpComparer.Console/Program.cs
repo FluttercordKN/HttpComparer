@@ -3,12 +3,19 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
+using System.Threading.Tasks;
+using System.Linq;
 
 namespace HttpComparer.Console
 {
 	class Program
 	{
 		static void Main(string[] args)
+		{
+			MainAsync(args).GetAwaiter().GetResult();
+		}
+
+		static async Task MainAsync(string[] args)
 		{
 			if (args == null || args.Length != 3)
 				return;
@@ -25,11 +32,11 @@ namespace HttpComparer.Console
 			if (!Directory.Exists(outputPath))
 				return;
 
-			var creds = JsonConvert.DeserializeObject<CredentialsSet>(File.ReadAllText(credsPath));
-			var scenarios = JsonConvert.DeserializeObject<IReadOnlyCollection<EndpointScenario>>(File.ReadAllText(scenariosPath));
+			var creds = JsonConvert.DeserializeObject<CredentialsSet>(await File.ReadAllTextAsync(credsPath));
+			var scenarios = JsonConvert.DeserializeObject<IReadOnlyCollection<EndpointScenario>>(await File.ReadAllTextAsync(scenariosPath));
 
 			var comparer = new Comparer
-			{ 
+			{
 				BaseHost = creds.Base,
 				SideHost = creds.Side,
 				Scenarios = scenarios
@@ -37,7 +44,14 @@ namespace HttpComparer.Console
 
 			var resultFile = Path.Combine(outputPath, $"{comparer.BaseHost.Host}-{comparer.SideHost.Host}-{DateTime.Now.ToString().Replace('/', '-').Replace(':', '-')}.txt");
 
-			File.WriteAllText(resultFile, comparer.Execute().GetAwaiter().GetResult());
+			var total = scenarios.SelectMany(s => s.Parameters).Count();
+			var done = 0;
+			using var fileWriter = new StreamWriter(resultFile);
+			await foreach (var scenarioResult in comparer.Execute())
+			{
+				await fileWriter.WriteLineAsync(scenarioResult);
+				System.Console.WriteLine($"{DateTime.Now}\t{++done} of {total} API cases done");
+			}
 		}
 	}
 }

@@ -1,6 +1,4 @@
-﻿
-using JsonDiffPatch;
-
+﻿using JsonDiffPatch;
 
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -8,32 +6,30 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
-using System.Linq;
 
 namespace HttpComparer
 {
 	public class Comparer
 	{
+		private static readonly JToken _emptyToken = JObject.Parse("{}");
+
 		public HostAccess BaseHost { get; set; }
 		public HostAccess SideHost { get; set; }
 		public IReadOnlyCollection<EndpointScenario> Scenarios { get; set; }
 
-
-		public async Task<string> Execute()
+		public async IAsyncEnumerable<string> Execute()
 		{
 			using var client = new HttpClient();
-			var results = new List<string>();
 			foreach (var scenario in Scenarios)
 				foreach (var parametersSet in scenario.Parameters)
-					results.Add(await ProcessScenarioCase(client, BaseHost, SideHost, scenario.Template, parametersSet));
-
-			return string.Join(Environment.NewLine, results);
+					yield return await ProcessScenarioCase(client, BaseHost, SideHost, scenario.Template, parametersSet);
 		}
 
 		private static async Task<string> ProcessScenarioCase(HttpClient client, HostAccess baseAccess, HostAccess sideAccess, string urlTemplate, ScenarioParametersSet parametersSet)
@@ -60,14 +56,14 @@ namespace HttpComparer
 			if (TryParseJson(baseContent, out var baseTokens) && TryParseJson(sideContent, out var sideTokens))
 			{
 				var fails = new List<string>();
-				var operationsSections = JCompareHelper.Diff(baseTokens, sideTokens).ToArray();
+				var operationsSections = Diff(baseTokens, sideTokens).ToArray();
 				for (var i = 0; i < operationsSections.Length; i++)
 				{
 					var operationsSet = operationsSections[i];
 					if (operationsSet.Any())
 					{
 						fails.Add($"FAIL\t{realPath}\tResponse item {i}");
-						fails.AddRange(operationsSet.Select(operation => $"\tOperation: {operation.Op}; Path: {operation.Path}; Value: {operation.Value}"));
+						fails.AddRange(operationsSet.Select(operation => $"\tOperation: {operation.Op}; Path: {operation.Path}; Base value: {JsonConvert.SerializeObject(operation.BaseValue)}; Side value: {JsonConvert.SerializeObject(operation.SideValue)}"));
 					}
 				}
 				if (fails.Any())
@@ -81,6 +77,42 @@ namespace HttpComparer
 					return $"OK\t{realPath}";
 				else
 					return $"FAIL\t{realPath}\tExtected: {baseContent}; Actual:{sideContent}";
+			}
+		}
+
+		public static IEnumerable<IReadOnlyCollection<DiffRecord>> Diff(IList<JToken> from, IList<JToken> to)
+		{
+			var length = from.Count > to.Count ? from.Count : to.Count;
+			for (var i = 0; i < length; i++)
+			{
+				var fromToken = i < from.Count ? from[i] : _emptyToken;
+				var toToken = i < to.Count ? to[i] : _emptyToken;
+				var patch = new JsonDiffer();
+				var forwardPatch = patch.Diff(fromToken, toToken, true);
+				var backwardPatch = patch.Diff(toToken, fromToken, true);
+
+				if (TryParseJson(forwardPatch.ToString(), out var forwardTokens) && TryParseJson(backwardPatch.ToString(), out var backwardTokens))
+				{
+					var operations = new DiffRecord[forwardTokens.Count];
+					for (var j = 0; j < operations.Length; j++)
+					{
+						var forwardToken = forwardTokens[j];
+						var forwardOperation = JsonConvert.DeserializeObject<PatchOperation>(forwardToken.ToString());
+
+						var backwardToken = backwardTokens[j];
+						var backwardOperation = JsonConvert.DeserializeObject<PatchOperation>(backwardToken.ToString());
+						operations[j] = new DiffRecord
+						{ 
+							Op = forwardOperation.Op,
+							Path = forwardOperation.Path,
+							SideValue = forwardOperation.Value,
+							BaseValue = backwardOperation.Value
+						};
+					}
+					yield return operations;
+				}
+				else
+					throw new InvalidOperationException();
 			}
 		}
 
